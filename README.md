@@ -15,7 +15,7 @@ The patch lives in RAM only and is gone after the next reboot. The firmware on f
 | Device | iPod nano 7G, firmware 1.1.2 (build 39A10023). The addresses are build-specific; `load.py` verifies the version before writing anything. |
 | Code execution | [ipod_sun](https://github.com/CUB3D/ipod_sun), e.g. the untethered build from [ipod_sun_untethered](https://github.com/nfzerox/ipod_sun_untethered). Its vendor SCSI commands `c6 96 01/02/03` (write / read / call) are used to load the payload. |
 | Build | `arm-none-eabi-gcc` |
-| Loader | Linux: `sg_raw` (sg3_utils). macOS: an `sg_raw`-compatible tool, e.g. `ipod_sg_raw` from NanoApps. |
+| Loader | Linux: `sg_raw` (sg3_utils). macOS: `tools/macos/ipod_sg_raw.c`, built with `make ipod_sg_raw` (needs the Xcode command line tools). |
 
 ## Build and load
 
@@ -23,7 +23,9 @@ The patch lives in RAM only and is gone after the next reboot. The firmware on f
 make                                          # build/a1717_patch.bin
 
 sudo python3 tools/load.py --dev /dev/sdX     # Linux
-python3 tools/load.py --sg /path/ipod_sg_raw  # macOS
+
+make ipod_sg_raw                              # macOS: build the SCSI tool once
+python3 tools/load.py
 ```
 
 The loader:
@@ -32,6 +34,14 @@ The loader:
 3. runs the payload once and confirms the hook is installed
 
 It has to be run again after each reboot.
+
+## Layout
+
+| Path | Contents |
+|---|---|
+| `src/` | the payload that runs on the nano (`a1717_patch.c`, linker script) |
+| `tools/load.py` | uploads and runs the payload |
+| `tools/macos/ipod_sg_raw.c` | `sg_raw`-compatible SCSI tool for macOS (IOKit `SCSITaskDeviceInterface`) |
 
 ## Background
 

@@ -11,6 +11,13 @@ LDFLAGS := -nostdlib -Wl,--gc-sections -Wl,--build-id=none -Wl,-T,src/link.ld \
 
 all: build/a1717_patch.bin
 
+# macOS only: sg_raw-compatible SCSI tool for tools/load.py (Linux uses sg_raw from sg3_utils).
+HOSTCC ?= clang
+ipod_sg_raw: build/ipod_sg_raw
+build/ipod_sg_raw: tools/macos/ipod_sg_raw.c
+	@mkdir -p build
+	$(HOSTCC) -O2 -o $@ $< -framework IOKit -framework CoreFoundation
+
 build/a1717_patch.elf: src/a1717_patch.c src/link.ld
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ src/a1717_patch.c
@@ -21,4 +28,4 @@ build/a1717_patch.bin: build/a1717_patch.elf
 
 clean:
 	rm -rf build
-.PHONY: all clean
+.PHONY: all clean ipod_sg_raw

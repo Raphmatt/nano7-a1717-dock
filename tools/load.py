@@ -6,7 +6,7 @@ Needs ipod_sun (untethered) on the nano, which provides the vendor SCSI commands
   c6 96 03 <addr BE>   call addr (|1 = Thumb)
 
 Linux:  sudo python3 tools/load.py --dev /dev/sdX            (uses sg_raw from sg3_utils)
-macOS:  python3 tools/load.py --sg /path/to/ipod_sg_raw     (sg_raw-compatible tool; DEV is ignored)
+macOS:  make ipod_sg_raw && python3 tools/load.py          (uses build/ipod_sg_raw; DEV is ignored)
 
 Run it once after every reboot of the nano. It refuses to write unless the firmware is 1.1.2
 (39A10023), the hook site has the original bytes, and the target RAM is unused.
@@ -67,13 +67,18 @@ def main():
     here = os.path.dirname(os.path.abspath(__file__))
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--bin", default=os.path.join(here, "..", "build", "a1717_patch.bin"))
-    ap.add_argument("--sg", help="sg_raw (Linux) or ipod_sg_raw (macOS); default: sg_raw / ipod_sg_raw from PATH")
+    ap.add_argument("--sg", help="SCSI tool; default: sg_raw on Linux, build/ipod_sg_raw on macOS")
     ap.add_argument("--dev", default="/dev/null", help="SCSI device on Linux, e.g. /dev/sdb (ignored on macOS)")
     a = ap.parse_args()
 
-    sg = a.sg or shutil.which("ipod_sg_raw" if platform.system() == "Darwin" else "sg_raw")
+    sg = a.sg
+    if not sg and platform.system() == "Darwin":
+        local = os.path.join(here, "..", "build", "ipod_sg_raw")
+        sg = local if os.access(local, os.X_OK) else shutil.which("ipod_sg_raw")
+    elif not sg:
+        sg = shutil.which("sg_raw")
     if not sg:
-        sys.exit("no sg_raw / ipod_sg_raw found; pass --sg")
+        sys.exit("no SCSI tool found: on macOS run 'make ipod_sg_raw', on Linux install sg3_utils, or pass --sg")
     if platform.system() == "Linux" and a.dev == "/dev/null":
         sys.exit("pass --dev /dev/sdX (the iPod's disk)")
     img = pathlib.Path(a.bin).read_bytes()
