@@ -110,6 +110,15 @@ Untested alternative to step 1: change the branch at `0x08025394` from `0d d0` t
 - The payload occupies the unused area at the end of osos `.text` (`0x0867f8e4`). Other payloads that load there, such as NanoApps harnesses, overwrite it.
 - Without a charger on the dock, the dock is powered by the nano's battery.
 
+## Use of AI
+
+This project was developed with AI assistance, using Anthropic's Claude models in Claude Code:
+
+- **Claude Opus 5.5:** inspecting the firmware, the RAM recorder used to find the fix, the payload in `src/`, `tools/load.py` and this README.
+- **Claude Fable 5.1:** `tools/macos/ipod_sg_raw.c` and `tools/macos/nanoapps-macos-transport.patch`.
+
+Testing on the device and all decisions were done by me.
+
 ## License
 
 MIT, see [LICENSE](LICENSE). Copyright (c) 2026 Raphmatt.
