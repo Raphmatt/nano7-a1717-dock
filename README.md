@@ -92,3 +92,7 @@ Untested alternative to step 1: change the branch at `0x08025394` from `0d d0` t
 - Undock relies on the stock detach handling. The patch does not call `0x080d0408(4, 0)` itself.
 - The payload occupies the unused area at the end of osos `.text` (`0x0867f8e4`). Other payloads that load there, such as NanoApps harnesses, overwrite it.
 - Without a charger on the dock, the dock is powered by the nano's battery.
+
+## License
+
+MIT, see [LICENSE](LICENSE). Copyright (c) 2026 Raphmatt.
