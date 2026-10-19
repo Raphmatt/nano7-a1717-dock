@@ -61,7 +61,15 @@ It has to be run again after each reboot.
 
 ## macOS SCSI tool and NanoApps
 
-`tools/macos/ipod_sg_raw.c` drives the iPod through IOKit's `SCSITaskDeviceInterface`, with the same command-line options as Linux `sg_raw`. It is a rough first version: functional, but not cleaned up yet. The plan is to submit it to [NanoApps](https://github.com/nfzerox/NanoApps) later. For now it can be added to a NanoApps checkout by hand:
+`tools/macos/ipod_sg_raw.c` drives the iPod through IOKit's `SCSITaskDeviceInterface`, with the same command-line options as Linux `sg_raw`. It is a rough first version: functional, but not cleaned up yet. The plan is to submit it to [NanoApps](https://github.com/nfzerox/NanoApps) later.
+
+It has only been used on one Mac (macOS 26.6.2) and may not work on every Mac or macOS version. Known shortcomings, to be fixed later:
+- **Timeouts:** `-t` is in milliseconds, while `sg_raw -t` is in seconds. `load.py` doesn't pass `-t`, so the loader isn't affected.
+- **Input checks:** missing for lengths, CDB bytes and option combinations. A short `-i` file is padded with zeros instead of being rejected.
+- **Failed commands:** the output file is written even when the command fails.
+- **Several iPods:** with more than one connected, the first one found is used.
+
+Until it is upstream, it can be added to a NanoApps checkout by hand:
 
 ```sh
 # next to your nano7-a1717-dock checkout:
