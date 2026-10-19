@@ -1,0 +1,287 @@
+diff --git a/.gitignore b/.gitignore
+index 7a6a5a9..e8c344c 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -9,3 +9,6 @@ tools/dependencies/*/target/
+ *.bin
+ *.elf
+ *.o
++
++# macOS iPod SCSI tool, built on demand from ipod_sg_raw.c
++tools/macos/ipod_sg_raw
+diff --git a/start b/start
+index 843efe9..6dfb607 100755
+--- a/start
++++ b/start
+@@ -9,9 +9,10 @@ auto-installs anything missing (ARM toolchain, Python + Pillow, the pinned LVGL
+ checkout, Font Awesome, sg3-utils) before the first build — so the usual first
+ run is just `./start install`.
+ 
+-The iPod is driven over a custom SCSI channel, which needs a Linux computer:
++The iPod is driven over a custom SCSI channel, which needs a Linux computer or a
++Mac (macOS exposes Apple's own iPod SCSI user client, see tools/macos/):
+ 
+-  * the iPod is attached to THIS computer (Linux, such as a Raspberry Pi)
++  * the iPod is attached to THIS computer (Linux such as a Raspberry Pi, or macOS)
+     -> commands run sg_raw locally; or
+   * you work on a Mac and the iPod hangs off a remote Linux computer (such as a
+     Raspberry Pi) -> commands run sg_raw over SSH.
+@@ -370,6 +371,14 @@ def ensure_build_deps():
+ 
+ 
+ def ensure_device_deps(tr):
++    if getattr(tr, "darwin", False):
++        if not _ensure_ipod_sg_raw():
++            sys.exit("start: could not build tools/macos/ipod_sg_raw (run: xcode-select --install)")
++        return
++    return _ensure_device_deps_linux(tr)
++
++
++def _ensure_device_deps_linux(tr):
+     """Best-effort auto-install of the iPod-machine's SCSI/FAT tools before a deploy
+     needs them. One batched, sbin-aware presence probe (non-login SSH PATH omits
+     /sbin), so it's a single round-trip and silent + fast when all present. Skips
+@@ -398,6 +407,59 @@ def ensure_device_deps(tr):
+ 
+ 
+ # ---------------------------------------------------------------- transport ---
++# macOS: there is no sg_raw, but macOS publishes Apple's SCSITaskUserClient on every
++# iPod (com_apple_driver_iPodSBCNub, category "iPodUserClientDevice" — the channel
++# iTunes/Finder use). tools/macos/ipod_sg_raw.c drives it with sg_raw's CLI, and
++# diskutil covers mount / eject / repair, none of it needing root.
++SGRAW_SRC = ROOT / "tools" / "macos" / "ipod_sg_raw.c"
++SGRAW_BIN = ROOT / "tools" / "macos" / "ipod_sg_raw"
++
++
++def _ensure_ipod_sg_raw(build=True):
++    """Build tools/macos/ipod_sg_raw from the .c next to it on first use (needs the
++    Xcode Command Line Tools' clang). True when the binary is present + current."""
++    if SGRAW_BIN.is_file() and SGRAW_BIN.stat().st_mtime >= SGRAW_SRC.stat().st_mtime:
++        return True
++    if not build:
++        return False
++    print("    -> building tools/macos/ipod_sg_raw")
++    r = subprocess.run(["xcrun", "clang", "-O2", "-Wno-deprecated-declarations",
++                        "-framework", "IOKit", "-framework", "CoreFoundation",
++                        "-o", str(SGRAW_BIN), str(SGRAW_SRC)])
++    return r.returncode == 0 and SGRAW_BIN.is_file()
++
++
++# Prepended to every device-side bash snippet on macOS: the Linux tool names the
++# snippets use, as shell functions over ipod_sg_raw + diskutil. sudo is a no-op
++# (nothing here needs root on macOS).
++_DARWIN_PREAMBLE = r"""
++_SGRAW='@SGRAW@'
++sudo() { "$@"; }
++sg_raw() { "$_SGRAW" "$@"; }
++sg_start() { "$_SGRAW" x 1b 00 00 00 03 00; }   # --loej: START STOP UNIT LOEJ|START -> Connected mode
++eject() { diskutil eject "$1" >/dev/null 2>&1; }
++udisksctl() { return 1; }
++umount() { local n=$#; local t="${!n}"; diskutil unmount "$t" >/dev/null 2>&1 || diskutil unmountDisk "$t" >/dev/null 2>&1; }
++mount() { local n=$#; local m="${!n}"; local i=$((n-1)); local p="${!i}"; diskutil mount -mountPoint "$m" "$p" >/dev/null 2>&1; }
++fsck.vfat() { local n=$#; local t="${!n}"; diskutil repairVolume "$t" >/dev/null 2>&1; }
++"""
++
++# Whole-disk node whose media name is "iPod" (/dev/diskN). After an eject the node is
++# gone, so kick the iPod back into Connected mode and wait for it.
++_DARWIN_FIND_DISK = r"""
++find_ipod() { for d in $(diskutil list 2>/dev/null | grep -o '^/dev/disk[0-9]*'); do diskutil info "$d" 2>/dev/null | grep -q 'Device / Media Name: *iPod$' && { echo "$d"; return 0; }; done; return 1; }
++find_ipod && exit 0
++sg_start x --loej 2>/dev/null || true
++for i in $(seq 1 20); do find_ipod && exit 0; sleep 1; done
++exit 1
++"""
++
++
++def _darwin_preamble():
++    _ensure_ipod_sg_raw()
++    return _DARWIN_PREAMBLE.replace("@SGRAW@", str(SGRAW_BIN))
++
++
+ class Transport:
+     """Runs shell commands either locally or on a remote Linux computer over SSH, and knows how
+     to resolve the iPod's (unstable) block node by SCSI model."""
+@@ -406,6 +468,7 @@ class Transport:
+         self.mode = mode            # "local" | "ssh"
+         self.pi = pi                # user@host when mode == "ssh", else None
+         self._dev = os.environ.get("IPOD_DEV")
++        self.darwin = mode == "local" and platform.system() == "Darwin"
+ 
+     @property
+     def desc(self):
+@@ -414,18 +477,39 @@ class Transport:
+     def sh(self, cmd, capture=False, check=True):
+         full = cmd if self.mode == "local" else ["ssh", self.pi, cmd if isinstance(cmd, str) else " ".join(cmd)]
+         if self.mode == "local" and isinstance(cmd, str):
+-            full = ["bash", "-c", cmd]
++            full = ["bash", "-c", (_darwin_preamble() + cmd) if self.darwin else cmd]
+         if capture:
+             return subprocess.run(full, capture_output=True, text=True).stdout
+         return subprocess.run(full, check=check)
+ 
+     def dev(self):
++        if not self._dev and self.darwin:
++            out = self.sh(_DARWIN_FIND_DISK, capture=True).strip()
++            if not out:
++                sys.exit("start: no iPod disk found (is it attached and awake?)")
++            self._dev = out
+         if not self._dev:
+             out = self.sh(r"""lsblk -dno NAME,MODEL 2>/dev/null | awk 'tolower($0) ~ /ipod/ {print "/dev/"$1; exit}'""",
+                           capture=True).strip()
+             self._dev = out or "/dev/sda"
+         return self._dev
+ 
++    def part(self):
++        """The iPod's data partition node: sdX1 on Linux; on macOS the last slice of
++        the disk (diskNs1 under an MBR/FAT32 "Windows" format, diskNs2 under the
++        Apple partition map + HFS+ that a Mac restore produces)."""
++        if self.darwin:
++            if not getattr(self, "_part", None):
++                out = self.sh(f"diskutil list {self.dev()} | awk '/^ *[0-9]+:/{{p=$NF}} END{{print p}}'", capture=True).strip()
++                self._part = f"/dev/{out}" if out and not out.startswith("/dev/") else (out or self.dev() + "s1")
++            return self._part
++        return self.dev() + "1"
++
++    def mnt(self):
++        """Mount point for that partition on the device host. /mnt is on the sealed
++        (read-only) system volume on macOS, so use /tmp there."""
++        return os.environ.get("IPOD_MOUNT", "/tmp/nanoapps-ipod" if self.darwin else "/mnt/nanoapps-ipod")
++
+     def peek(self, addr, n=0x200):
+         """Return n bytes of iPod DRAM via the custom SCSI peek (c6 96 02).
+ 
+@@ -443,7 +527,7 @@ class Transport:
+             cmd = (f"for i in $(seq 1 8); do "
+                    f"sudo sg_raw -o /tmp/nano_peek.bin -r 512 {dev} c6 96 02 {ab} >/dev/null 2>&1 "
+                    f"&& od -An -t x1 /tmp/nano_peek.bin | tr -d ' \\n' | grep -qv '^0*$' && break; "
+-                   f"sleep 0.3; done; base64 /tmp/nano_peek.bin 2>/dev/null")
++                   f"sleep 0.3; done; base64 < /tmp/nano_peek.bin 2>/dev/null")
+             b64 = self.sh(cmd, capture=True).strip()
+             try:
+                 chunk = base64.b64decode(b64)
+@@ -463,10 +547,10 @@ class Transport:
+         every file matching `globs` (shell globs relative to the mount root) into
+         PULL_TMP on the device host, unmount. Returns the file count, or -1 if the
+         mount failed."""
+-        dev = self.dev(); part = dev + "1"
++        dev = self.dev(); part = self.part()
+         cps = "; ".join(f'cp {g} "$T"/ 2>/dev/null || true' for g in globs)
+         script = (
+-            f'set -u; dev={dev}; part={part}; mnt=/mnt/nanoapps-ipod; T={self.PULL_TMP}; '
++            f'set -u; dev={dev}; part={part}; mnt={self.mnt()}; T={self.PULL_TMP}; '
+             f'sudo sg_start "$dev" --loej 2>/dev/null || true; '
+             f'for i in $(seq 1 30); do test -e "$part" && break; sleep 1; done; '
+             f'sudo fsck.vfat -a "$part" >/dev/null 2>&1 || true; '
+@@ -497,10 +581,10 @@ class Transport:
+     def _clear_device(self, globs):
+         """Remount rw and delete files matching `globs`, then eject. Only call once
+         the originals are safely copied to the host."""
+-        dev = self.dev(); part = dev + "1"
++        dev = self.dev(); part = self.part()
+         rms = "; ".join(f'sudo rm -f {g} 2>/dev/null || true' for g in globs)
+         script = (
+-            f'set -u; dev={dev}; part={part}; mnt=/mnt/nanoapps-ipod; '
++            f'set -u; dev={dev}; part={part}; mnt={self.mnt()}; '
+             f'sudo umount "$part" 2>/dev/null || true; '
+             f'sudo mount -o rw,flush "$part" "$mnt" 2>/dev/null || {{ echo RW_FAILED; exit 1; }}; '
+             f'cd "$mnt"; {rms}; sync; sudo umount "$mnt" 2>/dev/null || true; '
+@@ -563,7 +647,10 @@ class Transport:
+ 
+ 
+ def _local_ipod():
+-    """True if an iPod block device is attached to THIS (Linux) machine."""
++    """True if an iPod is attached to THIS machine: a block device on Linux, or on
++    macOS the iPod SCSI nub that carries Apple's SCSITaskUserClient."""
++    if platform.system() == "Darwin":
++        return subprocess.run(["bash", "-c", "ioreg -c com_apple_driver_iPodSBCNub 2>/dev/null | grep -q iPodSBCNub"]).returncode == 0
+     return platform.system() == "Linux" and subprocess.run(
+         ["bash", "-c", "lsblk -dno MODEL 2>/dev/null | grep -qi ipod"]).returncode == 0
+ 
+@@ -575,14 +662,14 @@ def setup_transport(persist=True):
+         sys.exit("start: no transport configured. Run `start setup`, or pass "
+                  "--local / --remote user@host (the iPod's machine).")
+     print("start setup — where is the iPod attached?")
+-    print("  1. This machine (iPod plugged into THIS computer; requires Linux)")
++    print("  1. This machine (iPod plugged into THIS computer; Linux or macOS)")
+     print("  2. A remote Linux host over SSH (e.g. a Raspberry Pi)")
+     choice = input("choose [1/2]: ").strip()
+     cfg = load_config()
+     if choice == "1":
+-        if platform.system() != "Linux":
++        if platform.system() not in ("Linux", "Darwin"):
+             sys.exit(f"start: this computer is {platform.system()}, but local SCSI access "
+-                     "needs Linux (sg_raw). Choose option 2 and attach the iPod to a "
++                     "needs Linux (sg_raw) or macOS. Choose option 2 and attach the iPod to a "
+                      "Linux host (such as a Raspberry Pi) over SSH.")
+         cfg["MODE"] = "local"; cfg.pop("REMOTE", None); cfg.pop("PI", None)
+         if persist: save_config(cfg); print(f"saved -> {CONFIG_FILE} (local)")
+@@ -602,8 +689,8 @@ def detect_transport(args, need_device=True):
+     env, then a directly-attached iPod, then the saved config, else (for device
+     ops) the first-run setup prompt."""
+     if getattr(args, "local", False):
+-        if platform.system() != "Linux":
+-            sys.exit(f"start: --local needs Linux for SCSI (this is {platform.system()}); "
++        if platform.system() not in ("Linux", "Darwin"):
++            sys.exit(f"start: --local needs Linux or macOS for SCSI (this is {platform.system()}); "
+                      "use --remote user@host to reach the iPod's Linux computer.")
+         return Transport("local", None)
+     if getattr(args, "remote", None):
+@@ -795,7 +882,7 @@ def _push_run(tr, name):
+         sys.exit(f"{tr.dev()} never appeared — put the iPod in Connected mode")
+     # unmount + eject so the FS is quiescent, then upload + exec, then eject again
+     # (the SCSI exec re-enters Connected mode; the post-eject lands us on home).
+-    tr.sh(f"sudo umount {tr.dev()}1 2>/dev/null; sudo umount {tr.dev()} 2>/dev/null; true", check=False)
++    tr.sh(f"sudo umount {tr.part()} 2>/dev/null; sudo umount {tr.dev()} 2>/dev/null; true", check=False)
+     tr.eject()
+     time.sleep(3)
+     tr.scsi_write_file(str(binp), link_va)
+@@ -839,8 +926,8 @@ def _install_disk(tr, src, data, data_force):
+     tr.stage(f"{src}/Apps", f"{stage}/Apps")
+     if (data or data_force) and (ROOT / "data").is_dir():
+         tr.stage(str(ROOT / "data"), f"{stage}/data")
+-    dev = tr.dev(); part = dev + "1"
+-    mnt = os.environ.get("IPOD_MOUNT", "/mnt/nanoapps-ipod")
++    dev = tr.dev(); part = tr.part()
++    mnt = tr.mnt()
+     force = "1" if data_force else ""
+     copy = f"""# Replace the app payload but PRESERVE {mnt}/Apps/Data, and sweep retired layouts
+ # (old /iPod_Control/hb*, hbapps/hbicons names, /Apps/*.app bundles).
+@@ -1032,10 +1119,12 @@ def cmd_bootstrap(args, tr):
+                     else:
+                         _remote_install(tr, pkgs)
+     elif darwin:
+-        # macOS is never the iPod's host (no sg_raw). The device tools live on the
+-        # iPod's Linux computer — point the user at setup instead of "installing".
+-        print("  (skipped — macOS can't drive SCSI; the iPod's Linux computer holds"
+-              " these. Run `start setup` to point start at it.)")
++        # macOS drives the iPod through Apple's SCSITaskUserClient (tools/macos/
++        # ipod_sg_raw, built here from source); diskutil does mount/eject/repair.
++        ok = _ensure_ipod_sg_raw(build=not check_only)
++        print(f"  ipod_sg_raw            {'ok' if ok else 'MISSING (built on first use; needs xcode-select --install)'}")
++        if not ok and check_only:
++            missing.append("tools/macos/ipod_sg_raw")
+     else:
+         # local transport == you're ON the iPod's Linux computer: the device tools
+         # are needed right here.
+@@ -1069,8 +1158,8 @@ def cmd_fsck(args, tr):
+     FAT marked 'dirty', which makes Linux mount it READ-ONLY (installs then fail
+     with 'Read-only file system'). This clears that and verifies a read-write
+     mount."""
+-    dev = tr.dev(); part = dev + "1"
+-    mnt = os.environ.get("IPOD_MOUNT", "/mnt/nanoapps-ipod")
++    dev = tr.dev(); part = tr.part()
++    mnt = tr.mnt()
+     print(f"==> repairing {part} on the iPod's computer")
+     script = f"""sudo sg_start {dev} --loej 2>/dev/null || true
+ for i in $(seq 1 40); do test -e {part} && break; sleep 1; done
+@@ -1094,8 +1183,8 @@ fi"""
+ def cmd_remount(args, tr):
+     """Put the iPod into Connected (mass-storage) mode and mount its FAT partition
+     read-write on the iPod's computer (the inverse of eject)."""
+-    dev = tr.dev(); part = dev + "1"
+-    mnt = os.environ.get("IPOD_MOUNT", "/mnt/nanoapps-ipod")
++    dev = tr.dev(); part = tr.part()
++    mnt = tr.mnt()
+     print(f"==> mounting {part} read-write at {mnt}")
+     tr.sh(_fat_mount_prep(dev, part, mnt) + f"echo 'mounted read-write at {mnt}'")
+ 

@@ -41,7 +41,27 @@ It has to be run again after each reboot.
 |---|---|
 | `src/` | the payload that runs on the nano (`a1717_patch.c`, linker script) |
 | `tools/load.py` | uploads and runs the payload |
-| `tools/macos/ipod_sg_raw.c` | `sg_raw`-compatible SCSI tool for macOS (IOKit `SCSITaskDeviceInterface`) |
+| `tools/macos/ipod_sg_raw.c` | `sg_raw`-compatible SCSI tool for macOS (IOKit `SCSITaskDeviceInterface`), rough first version |
+| `tools/macos/nanoapps-macos-transport.patch` | adds macOS support to NanoApps' `start` script (see below) |
+
+## macOS SCSI tool and NanoApps
+
+`tools/macos/ipod_sg_raw.c` drives the iPod through IOKit's `SCSITaskDeviceInterface`, with the same command-line options as Linux `sg_raw`. It is a rough first version: functional, but not cleaned up yet. The plan is to submit it to [NanoApps](https://github.com/nfzerox/NanoApps) later. For now it can be added to a NanoApps checkout by hand:
+
+```sh
+cd /path/to/NanoApps
+mkdir -p tools/macos
+cp /path/to/nano7-a1717-dock/tools/macos/ipod_sg_raw.c tools/macos/
+git apply /path/to/nano7-a1717-dock/tools/macos/nanoapps-macos-transport.patch
+./start            # on macOS, builds tools/macos/ipod_sg_raw on first use
+```
+
+`nanoapps-macos-transport.patch` changes NanoApps' `start` script and `.gitignore`:
+- **Mac as a local transport:** uses `ipod_sg_raw` instead of `sg_raw`, and `diskutil` for mount, eject and repair.
+- **Automatic build:** compiles the tool on first use (needs `xcode-select --install`).
+- **Setup and bootstrap checks:** extended to macOS.
+
+The patch was made against NanoApps commit `80d439d` (2026-07-18). It contains parts of NanoApps' `start` script, which is MIT-licensed, Copyright (c) 2026 nfzerox.
 
 ## Background
 

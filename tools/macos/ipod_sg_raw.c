@@ -1,3 +1,10 @@
+/*
+ * Status: rough first version. It works (it was used for all device access while
+ * developing the A1717 patch), but it still needs cleanup and more input checks.
+ * It is meant to go upstream into NanoApps later; until then it lives here, and
+ * nanoapps-macos-transport.patch (same folder) adds macOS support to NanoApps' start
+ * script. See the README section "macOS SCSI tool and NanoApps".
+ */
 /* ipod_sg_raw — sg_raw-compatible raw SCSI for iPods on macOS.
  *
  * Uses Apple's SCSITaskDeviceInterface (QA1179), which macOS exposes for iPods
