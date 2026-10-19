@@ -8,6 +8,10 @@ The patch lives in RAM only and is gone after the next reboot. The firmware on f
 
 **Experimental.** The mechanism was verified on one nano (firmware 1.1.2 / 39A10023) with a separate RAM tracing setup. This repository packages the same two changes as a standalone payload and loader; reports from other devices are welcome.
 
+## Disclaimer
+
+Use at your own risk. This is an unofficial hobby project with no guarantee that it works or is safe on your device. The patch only changes RAM, and a reboot of the nano normally restores the stock state. I have not had any problems with this patch, and nothing unrecoverable in my other nano experiments either. Still, running unofficial code on the iPod (including ipod_sun, which this depends on) can in the worst case leave it unusable. You are responsible for anything that happens to your device.
+
 ## Requirements
 
 | | |
