@@ -21,6 +21,15 @@ Use at your own risk. This is an unofficial hobby project with no guarantee that
 | Build | `arm-none-eabi-gcc` |
 | Loader | Linux: `sg_raw` (sg3_utils). macOS: `tools/macos/ipod_sg_raw.c`, built with `make ipod_sg_raw` (needs the Xcode command line tools). |
 
+## Tested with
+
+| | |
+|---|---|
+| iPod | iPod nano 7th generation (2012), MD481 (A1446), 16 GB, Slate |
+| Firmware | 1.1.2 (39A10023) with ipod_sun untethered |
+| Dock | Apple Lightning Dock A1717 |
+| Host | macOS 26.6.2 |
+
 ## Build and load
 
 ```sh
