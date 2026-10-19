@@ -20,6 +20,8 @@ The patch lives in RAM only and is gone after the next reboot. The firmware on f
 ## Build and load
 
 ```sh
+git clone https://github.com/Raphmatt/nano7-a1717-dock.git
+cd nano7-a1717-dock
 make                                          # build/a1717_patch.bin
 
 sudo python3 tools/load.py --dev /dev/sdX     # Linux
@@ -49,10 +51,12 @@ It has to be run again after each reboot.
 `tools/macos/ipod_sg_raw.c` drives the iPod through IOKit's `SCSITaskDeviceInterface`, with the same command-line options as Linux `sg_raw`. It is a rough first version: functional, but not cleaned up yet. The plan is to submit it to [NanoApps](https://github.com/nfzerox/NanoApps) later. For now it can be added to a NanoApps checkout by hand:
 
 ```sh
-cd /path/to/NanoApps
+# next to your nano7-a1717-dock checkout:
+git clone https://github.com/nfzerox/NanoApps.git
+cd NanoApps
 mkdir -p tools/macos
-cp /path/to/nano7-a1717-dock/tools/macos/ipod_sg_raw.c tools/macos/
-git apply /path/to/nano7-a1717-dock/tools/macos/nanoapps-macos-transport.patch
+cp ../nano7-a1717-dock/tools/macos/ipod_sg_raw.c tools/macos/
+git apply ../nano7-a1717-dock/tools/macos/nanoapps-macos-transport.patch
 ./start            # on macOS, builds tools/macos/ipod_sg_raw on first use
 ```
 
